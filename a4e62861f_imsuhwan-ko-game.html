@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>임수환 K.O. 게임</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    background: #F3EDE3;
+    color: #2B2118;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .app { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .sub { font-size: 13px; color: #8A7A66; margin-top: 4px; }
+  .hud { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .tile { background: #FFFFFF; border: 1px solid #E7DFD3; border-radius: 12px; padding: 10px 14px; }
+  .tile .lab { font-size: 11px; font-weight: 700; color: #8A7A66; }
+  .tile .val { font-size: 22px; font-weight: 800; color: #2B2118; margin-top: 2px; }
+  #wrap { position: relative; height: 440px; background: #FFF9F2; border: 1px solid #E7DFD3; border-radius: 16px; overflow: hidden; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+  .ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(255,249,242,.9); }
+  .panel { background: #FFFFFF; border: 1px solid #E7DFD3; border-radius: 16px; padding: 26px 24px; text-align: center; max-width: 320px; }
+  .panel .t { font-size: 18px; font-weight: 800; }
+  .panel p { font-size: 12px; color: #8A7A66; margin: 10px 0 16px; line-height: 1.6; }
+  .btn {
+    display: inline-block; background: #E23D5B; color: #FFFFFF; border: none;
+    font-size: 14px; font-weight: 700; padding: 10px 22px; border-radius: 10px; cursor: pointer;
+  }
+  .btn:hover { background: #C22B48; }
+  .stat-row { display: flex; justify-content: center; gap: 18px; margin: 6px 0 16px; }
+  .stat-row div { font-size: 12px; color: #8A7A66; font-weight: 700; }
+  .stat-row b { display: block; font-size: 20px; color: #2B2118; }
+  .foot { font-size: 11px; color: #B3A48E; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div>
+    <h1>임수환 K.O. 게임</h1>
+    <p class="sub">그는 죽지 않습니다. 부활할 뿐입니다. 30초 안에 최대한 혼내주세요.</p>
+  </div>
+  <div class="hud">
+    <div class="tile"><div class="lab">점수</div><div class="val" id="hudScore">0</div></div>
+    <div class="tile"><div class="lab">K.O.</div><div class="val" id="hudKO">0</div></div>
+    <div class="tile"><div class="lab">남은 시간</div><div class="val" id="hudTime">30.0</div></div>
+  </div>
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <div class="ov" id="startOv">
+      <div class="panel">
+        <div class="t">임수환을 클릭해 혼내주세요</div>
+        <p>마우스를 대면 도망갑니다. HP를 0으로 만들면 K.O.!<br>콤보를 쌓으면 데미지가 커져요. 잡을 수 있을 만큼 빠른가요?</p>
+        <button class="btn" id="startBtn">게임 시작</button>
+      </div>
+    </div>
+    <div class="ov" id="endOv" style="display:none;">
+      <div class="panel">
+        <div class="t">시간 종료!</div>
+        <div class="stat-row">
+          <div>최종 점수<b id="rScore">0</b></div>
+          <div>K.O.<b id="rKO">0</b></div>
+          <div>최대 콤보<b id="rCombo">0</b></div>
+        </div>
+        <button class="btn" id="restartBtn">다시 하기</button>
+      </div>
+    </div>
+  </div>
+  <p class="foot">※ 실제 임수환은 K.O. 이후 항상 멀쩡하게 부활합니다.</p>
+</div>
+
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var wrap = document.getElementById('wrap');
+  var ctx = cv.getContext('2d');
+  var hudScore = document.getElementById('hudScore');
+  var hudKO = document.getElementById('hudKO');
+  var hudTime = document.getElementById('hudTime');
+  var startOv = document.getElementById('startOv');
+  var endOv = document.getElementById('endOv');
+
+  var PAL = {
+    bg: '#FFF9F2', ink: '#2B2118', sub: '#8A7A66', line: '#E7DFD3',
+    shirt: '#E23D5B', shirtDark: '#C22B48', skin: '#F2C29B',
+    hair: '#3B2E28', gold: '#F5A623', red: '#D92646', green: '#3B9E63',
+    white: '#FFFFFF', track: '#EFE4D6'
+  };
+
+  var W = 0, H = 0;
+  function fit() {
+    var r = wrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(r.width * dpr);
+    cv.height = Math.round(r.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  var state = 'ready', score = 0, koCount = 0, combo = 0, maxCombo = 0, comboT = 0, timeLeft = 30;
+  var parts = [], texts = [];
+  var P = { on: false, x: 0, y: 0 };
+
+  var S = {
+    x: 200, y: 200, vx: 100, vy: 60, r: 30,
+    hp: 60, maxHp: 60, level: 1, speed: 150,
+    wA: 0, wT: 0, bubble: null, bubT: 0,
+    flash: 0, koT: 0, invT: 0, bob: 0
+  };
+
+  var idleLines = ['도망가야지!', '왜 때려요?!', '심심했어요?', '커피 쏠게요!', '잘못했삼다', '야근은 안 해요!', '사장님 살려주세요'];
+  var hitLines = ['아야!', '윽!', '거기 아니에요!', '아프잖아요!', '진심이에요?'];
+
+  function say(l, t) { S.bubble = l; S.bubT = t || 1.8; }
+
+  function reset() {
+    S.x = W / 2; S.y = H / 2;
+    S.hp = 60; S.maxHp = 60; S.level = 1; S.speed = 150;
+    S.vx = 100; S.vy = 60; S.koT = 0; S.invT = 0; S.flash = 0;
+    S.bubble = null; S.bubT = 0;
+    parts = []; texts = [];
+    score = 0; koCount = 0; combo = 0; maxCombo = 0; timeLeft = 30;
+  }
+
+  function burst(x, y, n) {
+    for (var i = 0; i < n; i++) {
+      parts.push({
+        x: x, y: y,
+        a: Math.random() * Math.PI * 2,
+        sp: 120 + Math.random() * 180,
+        r: 4 + Math.random() * 5,
+        rot: Math.random() * Math.PI,
+        life: 0.55 + Math.random() * 0.35, t: 0
+      });
+    }
+  }
+
+  function addText(x, y, s, color, big) {
+    texts.push({ x: x, y: y, s: s, color: color, big: !!big, t: 0, life: 1 });
+  }
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function star(x, y, r, rot, color) {
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var rad = (i % 2 === 0) ? r : r * 0.45;
+      var a = -Math.PI / 2 + i * Math.PI / 5;
+      var px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function hit(x, y) {
+    if (state !== 'playing' || S.koT > 0) return;
+    var d = Math.hypot(x - S.x, y - S.y);
+    if (d <= S.r + 16) {
+      if (S.invT > 0) { addText(S.x, S.y - 64, '무적!', PAL.sub); return; }
+      combo++; comboT = 1.4;
+      if (combo > maxCombo) maxCombo = combo;
+      var dmg = 8 + Math.floor(Math.random() * 7) + (combo - 1) * 2;
+      S.hp -= dmg; S.flash = 0.18; score += dmg;
+      burst(x, y, 6);
+      addText(S.x + (Math.random() * 30 - 15), S.y - 60, '-' + dmg + (combo > 1 ? ' x' + combo : ''), PAL.red);
+      var a = (d === 0) ? Math.random() * Math.PI * 2 : Math.atan2(S.y - y, S.x - x);
+      S.vx = Math.cos(a) * 340; S.vy = Math.sin(a) * 340;
+      if (S.hp <= 0) {
+        koCount++; score += 200; S.koT = 1.1; S.hp = 0;
+        say('부활할게요...', 1.1);
+        addText(S.x, S.y - 92, 'K.O.!', PAL.shirt, true);
+        burst(S.x, S.y, 16);
+      } else if (Math.random() < 0.45) {
+        say(hitLines[Math.floor(Math.random() * hitLines.length)], 1.2);
+      }
+    } else {
+      combo = 0;
+      addText(x, y, '빗나감!', PAL.sub);
+    }
+  }
+
+  function respawn() {
+    S.level++; S.maxHp += 40; S.hp = S.maxHp; S.speed += 28; S.invT = 1.2;
+    S.x = 60 + Math.random() * (W - 120);
+    S.y = 70 + Math.random() * (H - 140);
+    say('부활! Lv.' + S.level, 1.5);
+  }
+
+  cv.addEventListener('pointermove', function (e) {
+    var r = cv.getBoundingClientRect();
+    P.x = e.clientX - r.left; P.y = e.clientY - r.top; P.on = true;
+  });
+  cv.addEventListener('pointerleave', function () { P.on = false; });
+  cv.addEventListener('pointerdown', function (e) {
+    var r = cv.getBoundingClientRect();
+    hit(e.clientX - r.left, e.clientY - r.top);
+  });
+
+  function update(dt) {
+    if (state === 'playing') {
+      timeLeft -= dt;
+      if (timeLeft <= 0) { timeLeft = 0; endGame(); }
+      comboT -= dt;
+      if (comboT <= 0) combo = 0;
+    }
+    if (S.koT > 0) {
+      S.koT -= dt;
+      if (S.koT <= 0) respawn();
+    } else if (state === 'playing') {
+      S.invT = Math.max(0, S.invT - dt);
+      S.flash = Math.max(0, S.flash - dt);
+      var flee = P.on && Math.hypot(P.x - S.x, P.y - S.y) < 180 && S.invT <= 0;
+      var a, spd;
+      if (flee) {
+        a = Math.atan2(S.y - P.y, S.x - P.x);
+        spd = S.speed * 1.9;
+      } else {
+        S.wT -= dt;
+        if (S.wT <= 0) { S.wT = 0.5 + Math.random() * 1.2; S.wA = Math.random() * Math.PI * 2; }
+        a = S.wA; spd = S.speed * 0.75;
+      }
+      var k = Math.min(1, dt * 5);
+      S.vx += (Math.cos(a) * spd - S.vx) * k;
+      S.vy += (Math.sin(a) * spd - S.vy) * k;
+      S.x += S.vx * dt; S.y += S.vy * dt;
+      var m = 48;
+      if (S.x < m) { S.x = m; S.vx = Math.abs(S.vx); S.wA = Math.PI - S.wA; }
+      if (S.x > W - m) { S.x = W - m; S.vx = -Math.abs(S.vx); S.wA = Math.PI - S.wA; }
+      if (S.y < m) { S.y = m; S.vy = Math.abs(S.vy); S.wA = -S.wA; }
+      if (S.y > H - m - 6) { S.y = H - m - 6; S.vy = -Math.abs(S.vy); S.wA = -S.wA; }
+      S.bubT -= dt;
+      if (S.bubT <= 0) S.bubble = null;
+      if (!S.bubble && Math.random() < dt * 0.35) {
+        say(idleLines[Math.floor(Math.random() * idleLines.length)], 1.8);
+      }
+    }
+    S.bob += dt;
+    var i;
+    for (i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i];
+      p.t += dt;
+      if (p.t >= p.life) { parts.splice(i, 1); continue; }
+      p.x += Math.cos(p.a) * p.sp * dt;
+      p.y += Math.sin(p.a) * p.sp * dt - 40 * dt;
+      p.rot += dt * 6;
+    }
+    for (i = texts.length - 1; i >= 0; i--) {
+      var tx = texts[i];
+      tx.t += dt;
+      if (tx.t >= tx.life) { texts.splice(i, 1); continue; }
+      tx.y -= 34 * dt;
+    }
+  }
+
+  function drawChar() {
+    var ko = S.koT > 0;
+    ctx.save();
+    ctx.fillStyle = 'rgba(59,46,40,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(S.x, S.y + 46, 30, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (S.invT > 0 && Math.sin(S.bob * 25) > 0) ctx.globalAlpha = 0.45;
+    ctx.translate(S.x, S.y + (ko ? 12 : Math.sin(S.bob * 9) * 2.5));
+    if (S.vx < 0) ctx.scale(-1, 1);
+
+    // legs
+    ctx.fillStyle = PAL.hair;
+    rr(-16, 34, 10, 14, 4); ctx.fill();
+    rr(6, 34, 10, 14, 4); ctx.fill();
+
+    // torso
+    ctx.fillStyle = PAL.shirt;
+    rr(-20, 8, 40, 30, 10); ctx.fill();
+    ctx.fillStyle = PAL.shirtDark;
+    rr(-20, 28, 40, 10, 8); ctx.fill();
+
+    // arms
+    ctx.fillStyle = PAL.skin;
+    ctx.beginPath(); ctx.arc(-24, 16, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(24, 16, 5, 0, Math.PI * 2); ctx.fill();
+
+    // head
+    ctx.fillStyle = PAL.skin;
+    ctx.beginPath(); ctx.arc(0, -22, 26, 0, Math.PI * 2); ctx.fill();
+
+    // hair (top half + quiff)
+    ctx.fillStyle = PAL.hair;
+    ctx.beginPath(); ctx.arc(0, -22, 26, Math.PI, 0); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(6, -46, 9, 5, -0.3, 0, Math.PI * 2); ctx.fill();
+
+    // glasses
+    ctx.strokeStyle = PAL.hair; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(-9, -20, 6.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(9, -20, 6.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-3, -20); ctx.lineTo(3, -20); ctx.stroke();
+
+    // eyes
+    ctx.lineWidth = 2;
+    if (ko) {
+      ctx.beginPath(); ctx.moveTo(-12, -24); ctx.lineTo(-6, -18); ctx.moveTo(-6, -24); ctx.lineTo(-12, -18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, -24); ctx.lineTo(12, -18); ctx.moveTo(12, -24); ctx.lineTo(6, -18); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -8, 3.5, 0, Math.PI * 2); ctx.stroke();
+    } else if (S.flash > 0) {
+      ctx.beginPath(); ctx.moveTo(-12, -21); ctx.lineTo(-6, -21); ctx.moveTo(6, -21); ctx.lineTo(12, -21); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -8, 4, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.fillStyle = PAL.hair;
+      ctx.beginPath(); ctx.arc(-9, -20, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(9, -20, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -7, 6, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke();
+    }
+
+    // hit flash
+    if (S.flash > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(0, -8, 40, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // KO stars orbiting
+    if (ko) {
+      for (var i = 0; i < 3; i++) {
+        var a = S.bob * 5 + i * (Math.PI * 2 / 3);
+        star(S.x + Math.cos(a) * 34, S.y - 34 + Math.sin(a) * 10, 6, a, PAL.gold);
+      }
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = PAL.bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(59,46,40,0.06)';
+    for (var gx = 20; gx < W; gx += 34) {
+      for (var gy = 20; gy < H; gy += 34) {
+        ctx.beginPath(); ctx.arc(gx, gy, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    drawChar();
+
+    // HP bar above head
+    if (S.koT <= 0) {
+      var ratio = Math.max(0, S.hp / S.maxHp);
+      ctx.fillStyle = PAL.track;
+      rr(S.x - 32, S.y - 68, 64, 7, 4); ctx.fill();
+      ctx.fillStyle = ratio > 0.5 ? PAL.green : (ratio > 0.25 ? PAL.gold : PAL.red);
+      if (ratio > 0) { rr(S.x - 32, S.y - 68, 64 * ratio, 7, 4); ctx.fill(); }
+      ctx.fillStyle = PAL.sub;
+      ctx.font = '700 9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('수환 Lv.' + S.level, S.x - 32, S.y - 74);
+    }
+
+    // speech bubble
+    if (S.bubble && S.koT <= 0) {
+      ctx.font = '700 12px sans-serif';
+      var w = ctx.measureText(S.bubble).width + 22;
+      var bx = Math.max(8, Math.min(W - w - 8, S.x - w / 2));
+      var by = S.y - 112;
+      ctx.fillStyle = PAL.white;
+      ctx.strokeStyle = PAL.line;
+      ctx.lineWidth = 1;
+      rr(bx, by, w, 26, 13); ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(S.x - 6, by + 26); ctx.lineTo(S.x + 6, by + 26); ctx.lineTo(S.x, by + 34);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = PAL.ink;
+      ctx.textAlign = 'center';
+      ctx.fillText(S.bubble, bx + w / 2, by + 17);
+    }
+
+    // particles
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      var al = 1 - p.t / p.life;
+      ctx.globalAlpha = Math.max(0, al);
+      star(p.x, p.y, p.r, p.rot, PAL.gold);
+      ctx.globalAlpha = 1;
+    }
+
+    // floating texts
+    for (var j = 0; j < texts.length; j++) {
+      var tx = texts[j];
+      var ta = Math.max(0, 1 - tx.t / tx.life);
+      ctx.globalAlpha = ta;
+      ctx.fillStyle = tx.color;
+      ctx.font = tx.big ? '800 24px sans-serif' : '700 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(tx.s, tx.x, tx.y);
+      ctx.globalAlpha = 1;
+    }
+
+    hudScore.textContent = score;
+    hudKO.textContent = koCount;
+    hudTime.textContent = timeLeft.toFixed(1);
+  }
+
+  function endGame() {
+    state = 'over';
+    document.getElementById('rScore').textContent = score;
+    document.getElementById('rKO').textContent = koCount;
+    document.getElementById('rCombo').textContent = 'x' + maxCombo;
+    endOv.style.display = 'flex';
+  }
+
+  function start() {
+    fit();
+    reset();
+    state = 'playing';
+    startOv.style.display = 'none';
+    endOv.style.display = 'none';
+    say('잡아보시죠!', 1.5);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('restartBtn').addEventListener('click', start);
+
+  fit();
+  reset();
+  S.x = W / 2; S.y = H / 2;
+
+  var last = performance.now();
+  function frame(t) {
+    var dt = Math.min(0.05, (t - last) / 1000);
+    last = t;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
